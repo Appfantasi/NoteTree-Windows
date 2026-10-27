@@ -1,0 +1,35 @@
+{
+  "name": "note-tree-windows",
+  "version": "1.0.0",
+  "description": "Note Tree desktop per Windows",
+  "main": "main.js",
+  "author": "Note Tree",
+  "license": "UNLICENSED",
+  "scripts": {
+    "start": "electron .",
+    "dist:win": "electron-builder --win portable"
+  },
+  "devDependencies": {
+    "electron": "^39.0.0",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "it.notetree.desktop",
+    "productName": "Note Tree",
+    "files": [
+      "NoteTree.html",
+      "main.js",
+      "preload.js",
+      "package.json"
+    ],
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "target": [
+        "portable"
+      ],
+      "artifactName": "Note-Tree-Windows-${version}.${ext}"
+    }
+  }
+}
