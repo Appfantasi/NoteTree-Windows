@@ -140,6 +140,8 @@
     .add-button[data-type="voce"] { color: var(--accent); }
     .add-button[data-type="url"] { color: var(--green); }
     .add-button[data-type="nota"] { color: var(--purple); }
+    .add-button[data-type="cartella"] { color: var(--green); }
+    .badge.folder { background: var(--accent-soft); color: var(--green); }
 
     .parent-row {
       display: grid;
@@ -472,7 +474,7 @@
       <button class="theme-button" id="themeButton" type="button" title="Cambia tema" aria-label="Cambia tema">🌙</button>
     </header>
 
-    <p class="hint">Organizza voci, link e note in un albero. Usa <code>[[Nome voce]]</code> per creare un collegamento interno e il pulsante 📎 nell'editor per collegare un file (PDF, Word…).</p>
+    <p class="hint">Organizza più alberi in cartelle. Usa <code>((Titolo della nota))</code> per collegare note tra loro; i vecchi collegamenti <code>[[Titolo]]</code> continuano a funzionare. Usa 📎 per collegare un file.</p>
 
     <section class="toolbar" aria-label="Strumenti">
       <span class="count" id="count">0 voci</span>
@@ -492,6 +494,7 @@
       <button class="add-button" type="button" data-type="voce">＋ Voce</button>
       <button class="add-button" type="button" data-type="url">＋ URL</button>
       <button class="add-button" type="button" data-type="nota">＋ Nota interna</button>
+      <button class="add-button" type="button" data-type="cartella">＋ Cartella</button>
     </div>
 
     <label class="parent-row">
@@ -519,7 +522,7 @@
       <div class="modal-body">
         <div class="field">
           <label for="itemTitle">Titolo</label>
-          <input id="itemTitle" maxlength="300" autocomplete="off">
+          <input id="itemTitle" type="text" maxlength="300" autocomplete="off" spellcheck="false" aria-label="Titolo della voce, nota o cartella">
         </div>
 
         <div class="field" id="urlField" hidden>
@@ -533,8 +536,7 @@
           <div class="editor-wrap">
             <div class="editor-toolbar" id="editorToolbar" role="toolbar" aria-label="Strumenti di formattazione">
               <div class="link-row">
-                <button type="button" id="insertWikiBtn" title="Inserisci [[ ]] per collegare una voce">[[ ]] Collega voce</button>
-                <button type="button" id="insertNoteLinkBtn" title="Scegli una nota e inserisci un collegamento interno">🔗 Collega nota</button>
+                <button type="button" id="insertWikiBtn" title="Inserisci (( )) per collegare una nota">(( )) Collega nota interna</button>
                 <button type="button" id="insertFileBtn" title="Collega un file (PDF, Word…) senza copiarlo">📎 Collega file</button>
               </div>
               <!-- Undo / Redo -->
@@ -615,7 +617,7 @@
             </div>
 
             <div id="editorArea" class="editor-area" contenteditable="true"
-                 data-placeholder="Scrivi qui il contenuto. Puoi usare [[Nome voce]] per un link interno."></div>
+                 data-placeholder="Scrivi qui il contenuto. Usa ((Titolo della nota)) per un collegamento interno."></div>
 
             <textarea id="editorSource" class="editor-source" hidden spellcheck="false"></textarea>
           </div>
@@ -763,7 +765,7 @@
     }
 
     function normalizeNode(raw, id) {
-      const type = ['voce', 'nota', 'url'].includes(raw?.type) ? raw.type : 'voce';
+      const type = ['voce', 'nota', 'url', 'cartella'].includes(raw?.type) ? raw.type : 'voce';
       const url = type === 'url' && validUrl(raw?.url) ? String(raw.url).trim() : null;
 
       return {
@@ -814,7 +816,8 @@
     function linkifyTextNode(textNode) {
       const text = textNode.nodeValue;
       if (!text) return;
-      const regex = /(https?:\/\/[^\s<]+)|\[\[([^\]]+)\]\]/g;
+      // Supporta la sintassi nuova ((Titolo)) e quella storica [[Titolo]].
+      const regex = /(https?:\/\/[^\s<]+)|\(\(([^)]+)\)\)|\[\[([^\]]+)\]\]/g;
       let last = 0;
       let match;
       const frag = document.createDocumentFragment();
@@ -822,9 +825,7 @@
 
       while ((match = regex.exec(text)) !== null) {
         changed = true;
-        if (match.index > last) {
-          frag.appendChild(document.createTextNode(text.slice(last, match.index)));
-        }
+        if (match.index > last) frag.appendChild(document.createTextNode(text.slice(last, match.index)));
         if (match[1] && validUrl(match[1])) {
           const a = document.createElement('a');
           a.href = match[1];
@@ -832,35 +833,34 @@
           a.rel = 'noopener noreferrer';
           a.textContent = match[1];
           frag.appendChild(a);
-        } else if (match[2]) {
-          const title = match[2].trim();
-          const target = allNodes().find(n => n.title.toLowerCase() === title.toLowerCase());
-          const a = document.createElement('a');
-          a.href = '#';
-          a.textContent = title;
-          if (target) {
-            a.addEventListener('click', ev => {
-              ev.preventDefault();
-              revealNode(target.id);
-            });
+        } else {
+          const title = (match[2] || match[3] || '').trim();
+          if (!title) {
+            frag.appendChild(document.createTextNode(match[0]));
           } else {
-            a.addEventListener('click', ev => {
-              ev.preventDefault();
-              if (confirm(`La voce "${title}" non esiste. Vuoi crearla alla radice?`)) {
-                createNode({ type: 'nota', title, body: '', url: null, parentId: '' });
-              }
-            });
-            a.style.color = 'var(--danger)';
+            const target = allNodes().find(n => n.title.toLowerCase() === title.toLowerCase() && n.type !== 'url');
+            const a = document.createElement('a');
+            a.href = '#';
+            a.textContent = title;
+            if (target) {
+              a.addEventListener('click', ev => { ev.preventDefault(); revealNode(target.id); openReader(target.id); });
+            } else {
+              a.addEventListener('click', ev => {
+                ev.preventDefault();
+                if (confirm(`La nota "${title}" non esiste. Vuoi crearla alla radice?`)) {
+                  createNode({ type: 'nota', title, body: '', url: null, parentId: '' });
+                }
+              });
+              a.style.color = 'var(--danger)';
+              a.title = 'Nota non ancora creata';
+            }
+            frag.appendChild(a);
           }
-          frag.appendChild(a);
         }
         last = regex.lastIndex;
       }
-
       if (!changed) return;
-      if (last < text.length) {
-        frag.appendChild(document.createTextNode(text.slice(last)));
-      }
+      if (last < text.length) frag.appendChild(document.createTextNode(text.slice(last)));
       textNode.parentNode.replaceChild(frag, textNode);
     }
 
@@ -968,10 +968,10 @@
             badge.textContent = 'URL';
             content.appendChild(badge);
           } else {
-            if (node.type === 'nota') {
+            if (node.type === 'nota' || node.type === 'cartella') {
               const badge = document.createElement('span');
-              badge.className = 'badge note';
-              badge.textContent = 'nota';
+              badge.className = node.type === 'cartella' ? 'badge folder' : 'badge note';
+              badge.textContent = node.type === 'cartella' ? '📁 cartella' : 'nota';
               content.appendChild(badge);
               content.appendChild(document.createTextNode(' '));
             }
@@ -1091,6 +1091,7 @@
       $('editHeading').textContent = node ? 'Modifica voce' : ({
         voce: 'Nuova voce',
         nota: 'Nuova nota interna',
+        cartella: 'Nuova cartella',
         url: 'Nuovo link esterno'
       }[editingType] || 'Nuova voce');
 
@@ -1105,7 +1106,7 @@
       $('toggleSource').textContent = 'Mostra HTML';
 
       $('urlField').hidden = editingType !== 'url';
-      $('bodyField').hidden = editingType === 'url';
+      $('bodyField').hidden = editingType === 'url' || editingType === 'cartella';
       $('moveField').hidden = !node;
 
       addOptions($('editParent'), id);
@@ -1124,16 +1125,16 @@
 
       editorDirty = false;
       editBackdrop.classList.add('open');
-      setTimeout(() => $('itemTitle').focus(), 0);
+      requestAnimationFrame(() => { const titleInput = $('itemTitle'); titleInput.focus({ preventScroll: true }); titleInput.select(); });
     }
 
     function saveEditor() {
       const title = $('itemTitle').value.trim();
       const url = $('itemUrl').value.trim();
-      const body = sanitizeHTML(getEditorHTML());
+      const body = editingType === 'cartella' ? '' : sanitizeHTML(getEditorHTML());
 
       if (editingType !== 'url' && !title) {
-        alert('Inserisci un titolo.');
+        alert('Inserisci un titolo per la voce, la nota o la cartella.');
         $('itemTitle').focus();
         return;
       }
@@ -1504,6 +1505,8 @@
     }
 
     let editorDirty = false;
+    // Mantiene il campo Titolo utilizzabile anche dopo click rapidi tra controlli della finestra.
+    $('itemTitle').addEventListener('pointerdown', () => { $('itemTitle').focus(); });
     ['itemTitle', 'itemUrl', 'editorArea', 'editorSource', 'editParent'].forEach(id => {
       const el = $(id);
       if (el) { el.addEventListener('input', () => { editorDirty = true; }); el.addEventListener('change', () => { editorDirty = true; }); }
@@ -1520,10 +1523,10 @@
       const plain = html => new DOMParser().parseFromString(String(html || ''), 'text/html').body.textContent || '';
       return allNodes().filter(n => {
         if (n.id === node.id) return false;
-        const re = /\[\[([^\]]+)\]\]/g;
+        const re = /\(\(([^)]+)\)\)|\[\[([^\]]+)\]\]/g;
         const text = (n.title || '') + ' ' + plain(n.body);
         let m;
-        while ((m = re.exec(text)) !== null) if (m[1].trim().toLowerCase() === t) return true;
+        while ((m = re.exec(text)) !== null) if ((m[1] || m[2]).trim().toLowerCase() === t) return true;
         return false;
       });
     }
@@ -1612,18 +1615,30 @@
       }
     }
 
-    // [[ ]]: racchiude la selezione, oppure inserisce [[]] con il cursore in mezzo
+    // (( )): racchiude il testo selezionato o inserisce le parentesi con il cursore al centro.
     function insertWikiBrackets() {
-      if (sourceMode) return;
-      ntSaveSel()();
+      if (sourceMode) { alert("Torna all'editor visuale per inserire un collegamento."); return; }
+      const restoreSelection = ntSaveSel();
+      restoreSelection();
+      editorArea.focus();
       const sel = window.getSelection();
-      const text = sel.toString().replace(/\s+/g, ' ').trim().replace(/[\[\]]/g, '');
-      if (text) {
-        document.execCommand('insertText', false, '[[' + text + ']]');
+      const selectedText = sel ? sel.toString().replace(/\s+/g, ' ').trim().replace(/[()]/g, '') : '';
+      if (selectedText) {
+        document.execCommand('insertText', false, '((' + selectedText + '))');
       } else {
-        document.execCommand('insertText', false, '[[]]');
-        if (sel.modify) { sel.modify('move', 'backward', 'character'); sel.modify('move', 'backward', 'character'); }
+        document.execCommand('insertText', false, '(())');
+        const current = window.getSelection();
+        if (current && current.modify) {
+          current.modify('move', 'backward', 'character');
+          current.modify('move', 'backward', 'character');
+        } else if (current && current.rangeCount) {
+          const range = current.getRangeAt(0);
+          range.setStart(range.startContainer, Math.max(0, range.startOffset - 2));
+          range.collapse(true);
+          current.removeAllRanges(); current.addRange(range);
+        }
       }
+      editorDirty = true;
     }
 
     document.addEventListener('click', e => {
@@ -1634,26 +1649,7 @@
     }, true);
     $('insertWikiBtn').addEventListener('click', insertWikiBrackets);
 
-    // Collegamento guidato: seleziona una nota esistente e inserisce [[Titolo nota]].
-    $('insertNoteLinkBtn').addEventListener('click', () => {
-      if (sourceMode) { alert("Torna all'editor per collegare una nota."); return; }
-      const available = allNodes().filter(n => n.id !== editingId && n.title && n.type !== 'url');
-      if (!available.length) {
-        alert('Crea prima almeno un’altra voce o nota interna da collegare.');
-        return;
-      }
-      const list = available.map((n, i) => `${i + 1}. ${n.title}`).join('\\n');
-      const answer = prompt('Scrivi il numero della nota da collegare:\\n\\n' + list);
-      if (answer === null || !answer.trim()) return;
-      const index = Number(answer.trim());
-      if (!Number.isInteger(index) || index < 1 || index > available.length) {
-        alert('Numero non valido. Riprova scegliendo un numero della lista.');
-        return;
-      }
-      ntSaveSel()();
-      document.execCommand('insertText', false, `[[${available[index - 1].title}]]`);
-      editorDirty = true;
-    });
+    // Il pulsante collega nota inserisce (( )) senza finestre o numeri da scegliere.
     $('insertFileBtn').addEventListener('click', insertFileLink);
 
     $('insertLinkBtn').addEventListener('click', async () => {
