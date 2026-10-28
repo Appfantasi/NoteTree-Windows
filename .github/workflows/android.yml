@@ -17,6 +17,7 @@ permissions:
 jobs:
   build-android:
     runs-on: ubuntu-latest
+
     steps:
       - name: Scarica il progetto
         uses: actions/checkout@v5
@@ -47,12 +48,30 @@ jobs:
       - name: Sincronizza l'app Android
         run: npx cap sync android
 
-      - name: Compila APK debug
-        run: cd android && ./gradlew assembleDebug
+      - name: Prepara la chiave di firma
+        shell: bash
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: |
+          echo "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/notetree-release.jks"
+          test -s "$RUNNER_TEMP/notetree-release.jks"
 
-      - name: Pubblica APK
+      - name: Compila APK release firmato
+        shell: bash
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+        run: |
+          cd android
+          ./gradlew assembleRelease \
+            -Pandroid.injected.signing.store.file="$RUNNER_TEMP/notetree-release.jks" \
+            -Pandroid.injected.signing.store.password="$KEYSTORE_PASSWORD" \
+            -Pandroid.injected.signing.key.alias="$KEY_ALIAS" \
+            -Pandroid.injected.signing.key.password="$KEYSTORE_PASSWORD"
+
+      - name: Pubblica APK firmato
         uses: actions/upload-artifact@v6
         with:
-          name: Note-Tree-Android-APK
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          name: Note-Tree-Android-APK-Firmato
+          path: android/app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
