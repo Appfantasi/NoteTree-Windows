@@ -1,28 +1,20 @@
-NOTE TREE - VERSIONE WINDOWS
+NOTE TREE — PACCHETTO DI COMPILAZIONE WINDOWS + ANDROID
 
-Questa cartella contiene la versione desktop di Note Tree.
+Contenuti:
+- NoteTree.html: versione aggiornata con più alberi e cartelle.
+- main.js e preload.js: avvio desktop Electron.
+- package.json: dipendenze e configurazione per eseguibile portatile e installer Windows.
+- capacitor.config.json: configurazione dell'app Android.
+- .github/workflows/windows.yml: genera EXE portatile e installer Windows.
+- .github/workflows/android.yml: genera APK Android debug.
 
-FUNZIONI
-- Organizzazione ad albero di voci e note.
-- Collegamenti tra note: nell'editor usa "🔗 Collega nota", scegli un numero dalla lista.
-- È ancora disponibile il formato [[Titolo nota]].
-- I collegamenti inversi "Collegato da" appaiono quando una nota è aperta.
-- Collegamento e apertura di file locali (PDF, Word, immagini ecc.).
-- Tema chiaro/scuro, ricerca, importazione/esportazione JSON e Markdown.
+IMPORTANTE
+1. Conserva una copia del repository attuale prima di sostituire i file.
+2. I workflow vanno collocati esattamente in .github/workflows/.
+3. Su GitHub, carica NoteTree.html nella radice del repository sostituendo il file esistente.
+4. Aggiorna package.json e aggiungi capacitor.config.json.
+5. Aggiorna .github/workflows/windows.yml e crea .github/workflows/android.yml.
+6. Dopo il commit, apri Actions e attendi che entrambe le compilazioni finiscano.
+7. Apri il run verde, vai ad Artifacts e scarica Note-Tree-Windows oppure Note-Tree-Android-APK.
 
-COME OTTENERE L'EXE SENZA INSTALLARE STRUMENTI SUL PC
-1. Carica questi file in un repository GitHub (nella cartella principale).
-2. Apri la scheda Actions del repository.
-3. Seleziona "Build Note Tree for Windows".
-4. Premi "Run workflow" (se non appare, prima fai un commit dei file).
-5. Attendi che il lavoro sia verde.
-6. Apri il risultato e scarica l'artefatto "Note-Tree-Windows".
-7. Estrai lo ZIP scaricato: dentro trovi Note-Tree-Windows-1.0.0.exe.
-
-NOTA SUI DATI
-Le note sono salvate nel profilo locale dell'app. Esporta periodicamente un backup JSON:
-i dati locali non vengono automaticamente trasferiti da un browser a questa app desktop.
-
-Per avviare una compilazione locale (facoltativo), installa Node.js 22, poi esegui:
-npm install
-npm run dist:win
+L'APK generato è una build debug per installazione e test personale, non un pacchetto firmato per Google Play.

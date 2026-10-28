@@ -1,15 +1,19 @@
 {
   "name": "note-tree-windows",
-  "version": "1.0.0",
-  "description": "Note Tree desktop per Windows",
+  "version": "1.1.0",
+  "description": "Note Tree per Windows e Android",
   "main": "main.js",
   "author": "Note Tree",
   "license": "UNLICENSED",
   "scripts": {
     "start": "electron .",
-    "dist:win": "electron-builder --win portable"
+    "dist:win": "electron-builder --win",
+    "android:sync": "npx cap sync android"
   },
   "devDependencies": {
+    "@capacitor/android": "^7.4.3",
+    "@capacitor/cli": "^7.4.3",
+    "@capacitor/core": "^7.4.3",
     "electron": "^39.0.0",
     "electron-builder": "^26.0.12"
   },
@@ -27,9 +31,17 @@
     },
     "win": {
       "target": [
-        "portable"
+        "portable",
+        "nsis"
       ],
-      "artifactName": "Note-Tree-Windows-${version}.${ext}"
+      "artifactName": "Note-Tree-Windows-${version}-${target}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
     }
   }
 }

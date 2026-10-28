@@ -111,6 +111,17 @@
       font-size: 13px;
     }
 
+    .tree-manager {
+      display: grid; gap: 10px; margin: 0 0 16px; padding: 14px;
+      border: 1px solid var(--border); border-radius: 12px; background: var(--bg);
+    }
+    .tree-manager label { display: grid; gap: 5px; color: var(--muted); font-size: 13px; }
+    .tree-manager-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+    .tree-manager-actions button { padding: 8px 10px; }
+    .tree-manager .folder-create { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 8px; }
+    .tree-manager .primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+    @media (max-width: 520px) { .tree-manager .folder-create { grid-template-columns: 1fr; } }
+
     .search { margin-bottom: 14px; }
 
     input, textarea, select {
@@ -474,7 +485,28 @@
       <button class="theme-button" id="themeButton" type="button" title="Cambia tema" aria-label="Cambia tema">🌙</button>
     </header>
 
-    <p class="hint">Organizza più alberi in cartelle. Usa <code>((Titolo della nota))</code> per collegare note tra loro; i vecchi collegamenti <code>[[Titolo]]</code> continuano a funzionare. Usa 📎 per collegare un file.</p>
+    <p class="hint">Crea più alberi indipendenti, selezionali dall’elenco e organizzali in cartelle di archivio. Usa <code>((Titolo della nota))</code> per collegare note tra loro; i vecchi collegamenti <code>[[Titolo]]</code> continuano a funzionare. Usa 📎 per collegare un file.</p>
+
+    <section class="tree-manager" aria-label="Gestione degli alberi">
+      <label for="treeSelect">Albero attivo
+        <select id="treeSelect" aria-label="Seleziona albero"></select>
+      </label>
+      <div class="tree-manager-actions">
+        <button class="primary" type="button" id="newTreeButton">＋ Nuovo albero</button>
+        <button type="button" id="renameTreeButton">Rinomina albero</button>
+        <button type="button" id="deleteTreeButton">Elimina albero</button>
+      </div>
+      <label for="treeFolderSelect">Cartella di archivio per l’albero selezionato
+        <select id="treeFolderSelect" aria-label="Cartella di archivio"></select>
+      </label>
+      <div class="tree-manager-actions">
+        <button type="button" id="moveTreeButton">Sposta nella cartella</button>
+      </div>
+      <div class="folder-create">
+        <input id="newTreeFolderName" type="text" maxlength="100" placeholder="Nome di una nuova cartella" aria-label="Nome nuova cartella">
+        <button type="button" id="createTreeFolderButton">＋ Crea cartella</button>
+      </div>
+    </section>
 
     <section class="toolbar" aria-label="Strumenti">
       <span class="count" id="count">0 voci</span>
@@ -659,6 +691,10 @@
 
     let nodes = [];
     let nextId = 1;
+    let trees = [];
+    let activeTreeId = 'tree-1';
+    let nextTreeId = 2;
+    let archiveFolders = ['Generale'];
     let editingId = null;
     let editingType = 'voce';
     let sourceMode = false;
@@ -728,16 +764,23 @@
       return list.reduce((total, node) => total + 1 + countTree(node.children || []), 0);
     }
 
+    function currentTree() {
+      return trees.find(item => item.id === activeTreeId) || trees[0] || null;
+    }
+
+    function syncActiveTree() {
+      const active = currentTree();
+      if (!active) return;
+      active.nodes = nodes;
+      active.nextId = nextId;
+    }
+
     function save() {
-      const json = JSON.stringify({ nodes, nextId, savedAt: Date.now() });
+      syncActiveTree();
+      const json = JSON.stringify({ version: 13, trees, activeTreeId, nextTreeId, archiveFolders, nodes, nextId, savedAt: Date.now() });
       let ok = true;
-      try {
-        localStorage.setItem(STORAGE_KEY, json);
-      } catch (error) {
-        ok = false;
-        console.error(error);
-      }
-      // copia di sicurezza in IndexedDB: più spazio, sopravvive a un localStorage pieno o svuotato
+      try { localStorage.setItem(STORAGE_KEY, json); }
+      catch (error) { ok = false; console.error(error); }
       ntPut('state', json).catch(err => {
         console.error(err);
         if (!ok) toast('Impossibile salvare i dati in questo browser: esporta subito un backup JSON.');
@@ -782,33 +825,154 @@
     function load(rawOverride) {
       try {
         const raw = rawOverride || localStorage.getItem(STORAGE_KEY);
-        if (!raw) return;
-
+        if (!raw) {
+          trees = [{ id: 'tree-1', name: 'Albero principale', folder: 'Generale', nodes: [], nextId: 1 }];
+          activeTreeId = 'tree-1'; nextTreeId = 2; archiveFolders = ['Generale'];
+          nodes = trees[0].nodes; nextId = 1;
+          return;
+        }
         const data = JSON.parse(raw);
-        if (!Array.isArray(data.nodes)) return;
+        let maxTreeNumber = 0;
+        archiveFolders = Array.isArray(data.archiveFolders) ? [...new Set(data.archiveFolders.map(x => String(x).trim()).filter(Boolean))] : ['Generale'];
+        if (!archiveFolders.includes('Generale')) archiveFolders.unshift('Generale');
 
-        let maxId = 0;
-
-        function convert(list) {
-          return list.map(rawNode => {
-            const id = Number.isSafeInteger(Number(rawNode.id)) && Number(rawNode.id) > 0
-              ? Number(rawNode.id)
-              : maxId + 1;
-
-            maxId = Math.max(maxId, id);
-            const node = normalizeNode(rawNode, id);
-            node.children = convert(Array.isArray(rawNode.children) ? rawNode.children : []);
-            return node;
-          });
+        function convertNodes(list) {
+          let maxId = 0;
+          function convert(items) {
+            return items.map(rawNode => {
+              const id = Number.isSafeInteger(Number(rawNode.id)) && Number(rawNode.id) > 0 ? Number(rawNode.id) : maxId + 1;
+              maxId = Math.max(maxId, id);
+              const node = normalizeNode(rawNode, id);
+              node.children = convert(Array.isArray(rawNode.children) ? rawNode.children : []);
+              return node;
+            });
+          }
+          const result = convert(Array.isArray(list) ? list : []);
+          return { nodes: result, nextId: maxId + 1 };
         }
 
-        nodes = convert(data.nodes);
-        nextId = Math.max(Number(data.nextId) || 1, maxId + 1);
+        if (Array.isArray(data.trees) && data.trees.length) {
+          trees = data.trees.map((rawTree, index) => {
+            const converted = convertNodes(rawTree.nodes);
+            const id = String(rawTree.id || `tree-${index + 1}`);
+            const number = Number(id.replace(/^tree-/, ''));
+            if (Number.isFinite(number)) maxTreeNumber = Math.max(maxTreeNumber, number);
+            const folder = String(rawTree.folder || 'Generale').trim() || 'Generale';
+            if (!archiveFolders.includes(folder)) archiveFolders.push(folder);
+            return {
+              id,
+              name: String(rawTree.name || `Albero ${index + 1}`).trim() || `Albero ${index + 1}`,
+              folder,
+              nodes: converted.nodes,
+              nextId: Math.max(Number(rawTree.nextId) || 1, converted.nextId)
+            };
+          });
+          activeTreeId = trees.some(t => t.id === data.activeTreeId) ? data.activeTreeId : trees[0].id;
+          nextTreeId = Math.max(Number(data.nextTreeId) || 1, maxTreeNumber + 1, trees.length + 1);
+        } else {
+          // Migrazione automatica: il vecchio archivio diventa il primo albero, senza perdere le note.
+          const converted = convertNodes(data.nodes);
+          trees = [{ id: 'tree-1', name: 'Albero principale', folder: 'Generale', nodes: converted.nodes,
+            nextId: Math.max(Number(data.nextId) || 1, converted.nextId) }];
+          activeTreeId = 'tree-1'; nextTreeId = 2;
+        }
+        if (!trees.length) trees = [{ id: 'tree-1', name: 'Albero principale', folder: 'Generale', nodes: [], nextId: 1 }];
+        const active = currentTree();
+        nodes = active.nodes;
+        nextId = active.nextId;
       } catch (error) {
         console.warn('Non è stato possibile caricare i dati salvati.', error);
-        nodes = [];
-        nextId = 1;
+        trees = [{ id: 'tree-1', name: 'Albero principale', folder: 'Generale', nodes: [], nextId: 1 }];
+        activeTreeId = 'tree-1'; nextTreeId = 2; archiveFolders = ['Generale'];
+        nodes = trees[0].nodes; nextId = 1;
       }
+    }
+
+    function renderTreeManager() {
+      const select = $('treeSelect');
+      if (!select) return;
+      syncActiveTree();
+      select.replaceChildren();
+      const orderedFolders = [...archiveFolders].sort((a, b) => a.localeCompare(b, 'it'));
+      for (const folder of orderedFolders) {
+        const group = document.createElement('optgroup');
+        group.label = `📁 ${folder}`;
+        for (const item of trees.filter(t => t.folder === folder).sort((a, b) => a.name.localeCompare(b.name, 'it'))) {
+          const option = document.createElement('option');
+          option.value = item.id; option.textContent = item.name;
+          group.appendChild(option);
+        }
+        if (group.children.length) select.appendChild(group);
+      }
+      // Fallback per eventuali alberi con cartelle non standard.
+      for (const item of trees) {
+        if (![...select.options].some(option => option.value === item.id)) {
+          const option = document.createElement('option'); option.value = item.id; option.textContent = `${item.folder} / ${item.name}`;
+          select.appendChild(option);
+        }
+      }
+      select.value = activeTreeId;
+      const folderSelect = $('treeFolderSelect');
+      folderSelect.replaceChildren();
+      orderedFolders.forEach(folder => {
+        const option = document.createElement('option'); option.value = folder; option.textContent = folder;
+        folderSelect.appendChild(option);
+      });
+      folderSelect.value = currentTree()?.folder || 'Generale';
+      $('deleteTreeButton').disabled = trees.length <= 1;
+    }
+
+    function switchTree(id) {
+      syncActiveTree();
+      const target = trees.find(item => item.id === id);
+      if (!target) return;
+      activeTreeId = target.id; nodes = target.nodes; nextId = target.nextId || 1;
+      searchInput.value = '';
+      save(); render();
+    }
+
+    async function createTree() {
+      const name = await askText('Nome del nuovo albero:', 'Nuovo albero');
+      if (name === null || !name.trim()) return;
+      const folder = $('treeFolderSelect').value || 'Generale';
+      const id = `tree-${nextTreeId++}`;
+      const item = { id, name: name.trim(), folder, nodes: [], nextId: 1 };
+      trees.push(item); activeTreeId = id; nodes = item.nodes; nextId = 1;
+      save(); render(); toast(`Albero “${item.name}” creato.`);
+    }
+
+    async function renameTree() {
+      const active = currentTree(); if (!active) return;
+      const name = await askText('Nuovo nome dell’albero:', active.name);
+      if (name === null || !name.trim()) return;
+      active.name = name.trim(); save(); renderTreeManager(); toast('Nome dell’albero aggiornato.');
+    }
+
+    function moveTreeToFolder() {
+      const active = currentTree(); if (!active) return;
+      active.folder = $('treeFolderSelect').value || 'Generale';
+      if (!archiveFolders.includes(active.folder)) archiveFolders.push(active.folder);
+      save(); renderTreeManager(); toast(`Albero archiviato in “${active.folder}”.`);
+    }
+
+    function createArchiveFolder() {
+      const input = $('newTreeFolderName');
+      const name = input.value.trim();
+      if (!name) { input.focus(); toast('Scrivi prima il nome della cartella.'); return; }
+      if (archiveFolders.some(folder => folder.toLowerCase() === name.toLowerCase())) {
+        toast('Esiste già una cartella con questo nome.'); return;
+      }
+      archiveFolders.push(name); input.value = '';
+      save(); renderTreeManager(); $('treeFolderSelect').value = name;
+      toast(`Cartella “${name}” creata. Ora puoi spostarvi l’albero selezionato.`);
+    }
+
+    function deleteCurrentTree() {
+      const active = currentTree(); if (!active || trees.length <= 1) return;
+      if (!confirm(`Eliminare l’albero “${active.name}” e tutte le sue note? Questa operazione non si può annullare.`)) return;
+      trees = trees.filter(item => item.id !== activeTreeId);
+      activeTreeId = trees[0].id; nodes = trees[0].nodes; nextId = trees[0].nextId || 1;
+      save(); render(); toast('Albero eliminato.');
     }
 
     // ---------- LINK INTERNI [[...]] + URL ----------
@@ -1032,8 +1196,9 @@
       const built = buildList(nodes);
       tree.append(...built.children);
 
-      $('count').textContent = `${countTree()} ${countTree() === 1 ? 'voce' : 'voci'}`;
+      $('count').textContent = `${countTree()} ${countTree() === 1 ? 'voce' : 'voci'} · ${currentTree()?.name || 'Albero'}`;
       $('emptyMessage').hidden = nodes.length > 0;
+      renderTreeManager();
 
       addOptions(addParent);
       if (![...addParent.options].some(option => option.value === addParent.dataset.selected)) {
@@ -1272,7 +1437,7 @@
 
     function exportJson() {
       download(
-        JSON.stringify({ version: 12, exportedAt: new Date().toISOString(), nodes, nextId }, null, 2),
+        JSON.stringify((() => { syncActiveTree(); return { version: 13, exportedAt: new Date().toISOString(), trees, activeTreeId, nextTreeId, archiveFolders, nodes, nextId }; })(), null, 2),
         'note-tree-backup.json',
         'application/json'
       );
@@ -1310,14 +1475,34 @@
       reader.onload = () => {
         try {
           const data = JSON.parse(reader.result);
-          if (!data || !Array.isArray(data.nodes)) {
-            throw new Error('Il file non contiene un elenco valido di voci.');
+          if (!data || (!Array.isArray(data.nodes) && !Array.isArray(data.trees))) {
+            throw new Error('Il file non contiene un backup Note Tree valido.');
           }
 
-          if (!confirm(`Importare ${data.nodes.length} voci alla radice? Le voci attuali verranno mantenute.`)) {
+          if (Array.isArray(data.trees) && data.trees.length) {
+            if (!confirm(`Il backup contiene ${data.trees.length} alberi. Aggiungerli all’archivio attuale? Gli alberi già presenti saranno mantenuti.`)) return;
+            const existingNames = new Set(trees.map(t => t.name.toLowerCase()));
+            for (const imported of data.trees) {
+              let name = String(imported.name || 'Albero importato').trim() || 'Albero importato';
+              if (existingNames.has(name.toLowerCase())) name += ' (importato)';
+              existingNames.add(name.toLowerCase());
+              const id = `tree-${nextTreeId++}`;
+              const source = Array.isArray(imported.nodes) ? imported.nodes : [];
+              const remap = list => list.map(raw => {
+                const node = normalizeNode(raw, nextIdForImport++);
+                node.children = remap(Array.isArray(raw.children) ? raw.children : []);
+                return node;
+              });
+              let nextIdForImport = 1;
+              const folder = String(imported.folder || 'Generale').trim() || 'Generale';
+              if (!archiveFolders.includes(folder)) archiveFolders.push(folder);
+              trees.push({ id, name, folder, nodes: remap(source), nextId: nextIdForImport });
+            }
+            save(); render(); toast('Alberi importati.');
             return;
           }
 
+          if (!confirm(`Importare ${data.nodes.length} voci nell’albero “${currentTree()?.name || 'attivo'}”? Le voci attuali verranno mantenute.`)) return;
           function remap(list) {
             return list.map(raw => {
               const node = normalizeNode(raw, nextId++);
@@ -1325,10 +1510,8 @@
               return node;
             });
           }
-
           nodes.push(...remap(data.nodes));
-          save();
-          render();
+          save(); render();
         } catch (error) {
           alert(`Importazione non riuscita: ${error.message}`);
         }
@@ -1497,7 +1680,7 @@
         let ls = null;
         try { ls = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null'); } catch (e) {}
         const newer = !ls || (m.savedAt || 0) > (ls.savedAt || 0);
-        if (newer && Array.isArray(m.nodes) && (m.nodes.length || !ls)) {
+        if (newer && (Array.isArray(m.nodes) || Array.isArray(m.trees)) && ((m.nodes || []).length || (m.trees || []).length || !ls)) {
           load(mirror); render();
           toast('Dati ripristinati dalla copia di sicurezza.');
         }
@@ -1742,6 +1925,15 @@
       addParent.dataset.selected = addParent.value;
     });
 
+    $('treeSelect').addEventListener('change', event => switchTree(event.target.value));
+    $('newTreeButton').addEventListener('click', createTree);
+    $('renameTreeButton').addEventListener('click', renameTree);
+    $('deleteTreeButton').addEventListener('click', deleteCurrentTree);
+    $('moveTreeButton').addEventListener('click', moveTreeToFolder);
+    $('createTreeFolderButton').addEventListener('click', createArchiveFolder);
+    $('newTreeFolderName').addEventListener('keydown', event => { if (event.key === 'Enter') createArchiveFolder(); });
+    $('treeFolderSelect').addEventListener('change', () => {});
+
     $('themeButton').addEventListener('click', () => {
       setTheme(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark');
     });
@@ -1755,12 +1947,10 @@
     });
 
     $('resetButton').addEventListener('click', () => {
-      if (!confirm('Vuoi davvero cancellare tutte le voci?')) return;
+      if (!confirm(`Vuoi cancellare tutte le voci dell’albero “${currentTree()?.name || 'attivo'}”? Gli altri alberi non verranno modificati.`)) return;
       nodes = [];
       nextId = 1;
-      localStorage.removeItem(STORAGE_KEY);
-      ntDel('state').catch(() => {});
-      render();
+      syncActiveTree(); save(); render();
     });
 
     document.addEventListener('keydown', event => {
