@@ -1,12 +1,16 @@
 
-name: Note Tree Windows Build
+name: Build Note Tree Windows
 
 on:
   workflow_dispatch:
   push:
-    branches:
-      - main
-      - master
+    branches: [main, master]
+    paths:
+      - 'NoteTree.html'
+      - 'main.js'
+      - 'preload.js'
+      - 'package.json'
+      - '.github/workflows/windows.yml'
 
 permissions:
   contents: read
@@ -14,7 +18,6 @@ permissions:
 jobs:
   build-windows:
     runs-on: windows-latest
-
     steps:
       - name: Scarica il progetto
         uses: actions/checkout@v5
@@ -27,12 +30,13 @@ jobs:
       - name: Installa le dipendenze
         run: npm install
 
-      - name: Compila Note Tree per Windows
+      - name: Crea eseguibile portatile e installer
         run: npm run dist:win
 
-      - name: Carica l'eseguibile
+      - name: Pubblica i file Windows
         uses: actions/upload-artifact@v6
         with:
           name: Note-Tree-Windows
-          path: dist/*.exe
+          path: |
+            dist/*.exe
           if-no-files-found: error
