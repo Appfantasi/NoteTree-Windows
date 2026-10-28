@@ -1,0 +1,58 @@
+
+name: Build Note Tree Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+    paths:
+      - 'NoteTree.html'
+      - 'package.json'
+      - 'capacitor.config.json'
+      - '.github/workflows/android.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Scarica il progetto
+        uses: actions/checkout@v5
+
+      - name: Installa Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Installa Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Prepara la pagina dell'app
+        shell: bash
+        run: |
+          mkdir -p www
+          cp NoteTree.html www/index.html
+
+      - name: Installa le dipendenze
+        run: npm install
+
+      - name: Crea il progetto Android Capacitor
+        run: npx cap add android
+
+      - name: Sincronizza l'app Android
+        run: npx cap sync android
+
+      - name: Compila APK debug
+        run: cd android && ./gradlew assembleDebug
+
+      - name: Pubblica APK
+        uses: actions/upload-artifact@v6
+        with:
+          name: Note-Tree-Android-APK
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
