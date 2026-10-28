@@ -34,7 +34,7 @@
         "portable",
         "nsis"
       ],
-      "artifactName": "Note-Tree-Windows-${version}-${target}.${ext}"
+   "artifactName": "Note-Tree-Windows-${version}.${ext}"
     },
     "nsis": {
       "oneClick": false,
